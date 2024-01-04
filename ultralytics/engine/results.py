@@ -261,6 +261,7 @@ class Results(SimpleClass):
 
         # Plot Detect results
         if pred_boxes and show_boxes:
+            Final_VLA_pt = (9999,9999,9999,9999)
             Final_DCA_pt = (9999,9999,9999,9999)
             Final_DUA_d_pt = (9999,9999,9999,9999)
             Final_DUA_m_pt = (9999,9999,9999,9999)
@@ -270,8 +271,10 @@ class Results(SimpleClass):
                 c, conf, id = int(d.cls), float(d.conf) if conf else None, None if d.id is None else int(d.id.item())
                 name = ('' if id is None else f'id:{id} ') + names[c]
                 label = (f'{name} {conf:.2f}' if conf else name) if labels else None
-                DCA_pt,DUA_d_pt,DUA_m_pt,DUA_u_pt,DUA_ut_pt,im = annotator.box_label(d.xyxy.squeeze(), label, color=colors(c, True))
+                VLA_pt,DCA_pt,DUA_d_pt,DUA_m_pt,DUA_u_pt,DUA_ut_pt,im = annotator.box_label(d.xyxy.squeeze(), label, color=colors(c, True))
                 # print("[result.py]Alister 2024-01-04")
+                if VLA_pt[0]!=9999:
+                    Final_VLA_pt = VLA_pt
                 if DCA_pt[0]!=9999:
                     Final_DCA_pt = DCA_pt
                 if DUA_d_pt[0]!=9999:
@@ -292,6 +295,9 @@ class Results(SimpleClass):
         r_p4 = None
         l_p5 = None
         r_p5 = None
+        l_vl = None
+        r_vl = None
+
         if Final_DCA_pt[0]!=9999:
             l_p1 = (Final_DCA_pt[0],Final_DCA_pt[1])
             r_p1 = (Final_DCA_pt[2],Final_DCA_pt[3])
@@ -307,6 +313,20 @@ class Results(SimpleClass):
         if Final_DUA_ut_pt[0]!=9999:
             l_p5 = (Final_DUA_ut_pt[0],Final_DUA_ut_pt[1])
             r_p5 = (Final_DUA_ut_pt[2],Final_DUA_ut_pt[3])
+        
+        if Final_VLA_pt[0]!=9999:
+            l_vl = (Final_VLA_pt[0],Final_VLA_pt[1])
+            r_vl = (Final_VLA_pt[2],Final_VLA_pt[3])
+
+        DRAW_MIDDLE_LINE = True
+        DRAW_LEFT_LINE = True
+        DRAW_RIGHT_LINE = True
+        DRAW_CENTER_LINE = True
+        DRAW_LDWS = True
+        DRAW_VANISH_LINE = True
+        ## Draw Vanish Line
+        if DRAW_VANISH_LINE:
+            cv2.line(im, l_vl, r_vl, (255,0,200), 1)
 
         ## Draw Left Line
         color = (127,255,0)
@@ -314,50 +334,78 @@ class Results(SimpleClass):
         thickness = 8
         thickness_m = 6
         if l_p1 is not None and l_p2 is not None:
-            cv2.line(im, l_p1, l_p2, color, thickness)
-            m_p1 = (int((Final_DCA_pt[0]+Final_DCA_pt[2])/2.0),Final_DCA_pt[3])
-            m_p2 = (int((Final_DUA_d_pt[0]+Final_DUA_d_pt[2])/2.0),Final_DUA_d_pt[3])
-            cv2.line(im, m_p1, m_p2, color_m, thickness_m)
+            if DRAW_LEFT_LINE:
+                cv2.line(im, l_p1, l_p2, color, thickness)
+            ## Draw Middle Line
+            if DRAW_MIDDLE_LINE:
+                m_p1 = (int((Final_DCA_pt[0]+Final_DCA_pt[2])/2.0),Final_DCA_pt[3])
+                m_p2 = (int((Final_DUA_d_pt[0]+Final_DUA_d_pt[2])/2.0),Final_DUA_d_pt[3])
+                cv2.line(im, m_p1, m_p2, color_m, thickness_m)
         if l_p2 is not None and l_p3 is not None:
-            cv2.line(im, l_p2, l_p3, color, thickness)
-            m_p2 = (int((Final_DUA_d_pt[0]+Final_DUA_d_pt[2])/2.0),Final_DUA_d_pt[3])
-            m_p3 = (int((Final_DUA_m_pt[0]+Final_DUA_m_pt[2])/2.0),Final_DUA_m_pt[3])
-            cv2.line(im, m_p2, m_p3, color_m, thickness_m)
+            if DRAW_LEFT_LINE:
+                cv2.line(im, l_p2, l_p3, color, thickness)
+            ## Draw Middle Line
+            if DRAW_MIDDLE_LINE:
+                m_p2 = (int((Final_DUA_d_pt[0]+Final_DUA_d_pt[2])/2.0),Final_DUA_d_pt[3])
+                m_p3 = (int((Final_DUA_m_pt[0]+Final_DUA_m_pt[2])/2.0),Final_DUA_m_pt[3])
+                cv2.line(im, m_p2, m_p3, color_m, thickness_m)
         if l_p3 is not None and l_p4 is not None:
-            cv2.line(im, l_p3, l_p4, color, thickness)
-            m_p3 = (int((Final_DUA_m_pt[0]+Final_DUA_m_pt[2])/2.0),Final_DUA_m_pt[3])
-            m_p4 = (int((Final_DUA_u_pt[0]+Final_DUA_u_pt[2])/2.0),Final_DUA_u_pt[3])
-            cv2.line(im, m_p3, m_p4, color_m, thickness_m)
+            if DRAW_LEFT_LINE:
+                cv2.line(im, l_p3, l_p4, color, thickness)
+            ## Draw Middle Line
+            if DRAW_MIDDLE_LINE:
+                m_p3 = (int((Final_DUA_m_pt[0]+Final_DUA_m_pt[2])/2.0),Final_DUA_m_pt[3])
+                m_p4 = (int((Final_DUA_u_pt[0]+Final_DUA_u_pt[2])/2.0),Final_DUA_u_pt[3])
+                cv2.line(im, m_p3, m_p4, color_m, thickness_m)
         if l_p4 is not None and l_p5 is not None:
-            #print("l_p4 is not None and l_p5 is not None")
-            cv2.line(im, l_p4, l_p5, color, thickness)
-            m_p4 = (int((Final_DUA_u_pt[0]+Final_DUA_u_pt[2])/2.0),Final_DUA_u_pt[3])
-            m_p5 = (int((Final_DUA_ut_pt[0]+Final_DUA_ut_pt[2])/2.0),Final_DUA_ut_pt[3])
-            cv2.line(im, m_p4, m_p5, color_m, thickness_m)
+            if DRAW_LEFT_LINE:
+                #print("l_p4 is not None and l_p5 is not None")
+                cv2.line(im, l_p4, l_p5, color, thickness)
+            ## Draw Middle Line
+            if DRAW_MIDDLE_LINE:
+                m_p4 = (int((Final_DUA_u_pt[0]+Final_DUA_u_pt[2])/2.0),Final_DUA_u_pt[3])
+                m_p5 = (int((Final_DUA_ut_pt[0]+Final_DUA_ut_pt[2])/2.0),Final_DUA_ut_pt[3])
+                cv2.line(im, m_p4, m_p5, color_m, thickness_m)
         # elif l_p4 is not None and l_p5 is None:
         #     print("l_p5 is None")
         # elif l_p4 is  None and l_p5 is not None:
         #     print("l_p4 is None")
         # else:
         #     print("l_p4 is None and l_p5 is None")
-
         ## Draw Right Line
         color = (0,127,255)
         thickness = 8
-        if r_p1 is not None and r_p2 is not None:
-            cv2.line(im, r_p1, r_p2, color, thickness)
-        if r_p2 is not None and r_p3 is not None:
-            cv2.line(im, r_p2, r_p3, color, thickness)
-        if r_p3 is not None and r_p4 is not None:
-            cv2.line(im, r_p3, r_p4, color, thickness)
-        if r_p4 is not None and r_p5 is not None:
-            cv2.line(im, r_p4, r_p5, color, thickness)
+        if DRAW_RIGHT_LINE:
+            if r_p1 is not None and r_p2 is not None:
+                cv2.line(im, r_p1, r_p2, color, thickness)
+            if r_p2 is not None and r_p3 is not None:
+                cv2.line(im, r_p2, r_p3, color, thickness)
+            if r_p3 is not None and r_p4 is not None:
+                cv2.line(im, r_p3, r_p4, color, thickness)
+            if r_p4 is not None and r_p5 is not None:
+                cv2.line(im, r_p4, r_p5, color, thickness)
 
-
+        h,w = im.shape[0],im.shape[1]
+        ## Draw Center Line
+        if DRAW_CENTER_LINE:
+            c_x = int(w/2.0)
+            c_y1 = int(h*0.80)
+            c_y2 = int(h*0.99)
+            c1 = (c_x,c_y1)
+            c2 = (c_x,c_y2)
+            cv2.line(im, c1, c2, (255,255,0), 2)
         ## Draw Vanish Point Line
         # Not Implemented
 
-            
+        ## Draw LDWS
+        if DRAW_LDWS:
+            if l_p1 is not None and r_p1 is not None:
+                LD_TH = int(abs(r_p1[0] - l_p1[0]) / 3.5) 
+                driver_x = int((l_p1[0] + r_p1[0])/2.0)
+                departure_distance = abs(driver_x - int(w/2.0))
+                if departure_distance>LD_TH:
+                    text = 'DEPARTURE WARNING !'
+                    cv2.putText(im, text, (int(w/8.0), int(h/2.0)), cv2.FONT_HERSHEY_PLAIN,10, (0, 0, 255), 16, cv2.LINE_AA)
         # Plot Classify results
         if pred_probs is not None and show_probs:
             text = ',\n'.join(f'{names[j] if names else j} {pred_probs.data[j]:.2f}' for j in pred_probs.top5)

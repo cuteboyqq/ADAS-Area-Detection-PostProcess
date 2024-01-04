@@ -101,6 +101,11 @@ class Annotator:
         self.kpt_color = colors.pose_palette[[16, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 9, 9, 9, 9, 9, 9]]
 
     def box_label(self, box, label='', color=(128, 128, 128), txt_color=(255, 255, 255)):
+        VLA_l_x = 9999
+        VLA_l_y = 9999
+        VLA_r_x = 9999
+        VLA_r_y = 9999
+
         DCA_l_x = 9999
         DCA_l_y = 9999
         DCA_r_x = 9999
@@ -144,10 +149,18 @@ class Annotator:
             p1, p2 = (int(box[0]), int(box[1])), (int(box[2]), int(box[3]))
             la = label.split(" ")[0]
             la_type = label.split(" ")[1]
+            DRAW_TXT = True
             # print(f"la = {la}, la_type={la_type}")
-            # if la == 'VLA':
+            if la == 'VLA':
+                DRAW_TXT= False
+                # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
+                VLA_l_x = int(box[0])
+                VLA_l_y = int((box[3] + box[1])/2.0)
+                VLA_r_x = int(box[2])
+                VLA_r_y = int((box[3] + box[1])/2.0)
                 # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
             if la=='DCA':
+                DRAW_TXT= False
                 # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
                 DCA_l_x = int(box[0])
                 DCA_l_y = int(box[3])
@@ -156,6 +169,7 @@ class Annotator:
             # if la=='VPA':
                 # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
             if la == 'DUA' and la_type=='upest':
+                DRAW_TXT= False
                 # print("DUA upest")
                 DUA_ut_l_x = int(box[0])
                 DUA_ut_l_y = int(box[3])
@@ -163,24 +177,27 @@ class Annotator:
                 DUA_ut_r_y = int(box[3])
                 # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
             if la == 'DUA' and la_type=='up':
+                DRAW_TXT= False
                 DUA_u_l_x = int(box[0])
                 DUA_u_l_y = int(box[3])
                 DUA_u_r_x = int(box[2])
                 DUA_u_r_y = int(box[3])
                 # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
             if la == 'DUA' and la_type=='mid':
+                DRAW_TXT= False
                 DUA_m_l_x = int(box[0])
                 DUA_m_l_y = int(box[3])
                 DUA_m_r_x = int(box[2])
                 DUA_m_r_y = int(box[3])
                 # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
             if la == 'DUA' and la_type=='down':
+                DRAW_TXT= False
                 DUA_d_l_x = int(box[0])
                 DUA_d_l_y = int(box[3])
                 DUA_d_r_x = int(box[2])
                 DUA_d_r_y = int(box[3])
                 # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
-            if label:
+            if label and DRAW_TXT:
                 tf = max(self.lw - 1, 1)  # font thickness
                 w, h = cv2.getTextSize(label, 0, fontScale=self.lw / 3, thickness=tf)[0]  # text width, height
                 outside = p1[1] - h >= 3
@@ -193,12 +210,13 @@ class Annotator:
                             txt_color,
                             thickness=2,# tf
                             lineType=cv2.LINE_AA)
+        VLA_pt = (VLA_l_x,VLA_l_y,VLA_r_x,VLA_r_y)                    
         DCA_pt = (DCA_l_x,DCA_l_y,DCA_r_x,DCA_r_y)
         DUA_ut_pt = (DUA_ut_l_x,DUA_ut_l_y,DUA_ut_r_x,DUA_ut_r_y)
         DUA_u_pt = (DUA_u_l_x,DUA_u_l_y,DUA_u_r_x,DUA_u_r_y)
         DUA_m_pt = (DUA_m_l_x,DUA_m_l_y,DUA_m_r_x,DUA_m_r_y)
         DUA_d_pt = (DUA_d_l_x,DUA_d_l_y,DUA_d_r_x,DUA_d_r_y)
-        return DCA_pt,DUA_d_pt,DUA_m_pt,DUA_u_pt,DUA_ut_pt,self.im
+        return VLA_pt,DCA_pt,DUA_d_pt,DUA_m_pt,DUA_u_pt,DUA_ut_pt,self.im
 
     def masks(self, masks, colors, im_gpu, alpha=0.5, retina_masks=False):
         """
