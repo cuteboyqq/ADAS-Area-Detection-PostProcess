@@ -146,6 +146,11 @@ class Annotator:
         DCA_r_x = 9999
         DCA_r_y = 9999
 
+        VPA_l_x = 9999
+        VPA_l_y = 9999
+        VPA_r_x = 9999
+        VPA_r_y = 9999
+
         DUA_ut_l_x = 9999
         DUA_ut_l_y = 9999
         DUA_ut_r_x = 9999
@@ -201,8 +206,12 @@ class Annotator:
                 DCA_l_y = int(box[3])
                 DCA_r_x = int(box[2])
                 DCA_r_y = int(box[3])
-            # if la=='VPA':
+            if la=='VPA':
                 # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
+                VPA_l_x = int(box[0])
+                VPA_l_y = int(box[3])
+                VPA_r_x = int(box[2])
+                VPA_r_y = int(box[3])
             if la == 'DUA' and la_type=='upest':
                 DRAW_TXT= False
                 # print("DUA upest")
@@ -247,11 +256,12 @@ class Annotator:
                             lineType=cv2.LINE_AA)
         VLA_pt = (VLA_l_x,VLA_l_y,VLA_r_x,VLA_r_y)                    
         DCA_pt = (DCA_l_x,DCA_l_y,DCA_r_x,DCA_r_y)
+        VPA_pt = (VPA_l_x,VPA_l_y,VPA_r_x,VPA_r_y)
         DUA_ut_pt = (DUA_ut_l_x,DUA_ut_l_y,DUA_ut_r_x,DUA_ut_r_y)
         DUA_u_pt = (DUA_u_l_x,DUA_u_l_y,DUA_u_r_x,DUA_u_r_y)
         DUA_m_pt = (DUA_m_l_x,DUA_m_l_y,DUA_m_r_x,DUA_m_r_y)
         DUA_d_pt = (DUA_d_l_x,DUA_d_l_y,DUA_d_r_x,DUA_d_r_y)
-        return VLA_pt,DCA_pt,DUA_d_pt,DUA_m_pt,DUA_u_pt,DUA_ut_pt,self.im
+        return VLA_pt,DCA_pt,VPA_pt,DUA_d_pt,DUA_m_pt,DUA_u_pt,DUA_ut_pt,self.im
 
     def masks(self, masks, colors, im_gpu, alpha=0.5, retina_masks=False):
         """

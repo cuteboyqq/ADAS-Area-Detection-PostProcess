@@ -261,6 +261,7 @@ class Results(SimpleClass):
 
         Final_VLA_pt = (9999,9999,9999,9999)
         Final_DCA_pt = (9999,9999,9999,9999)
+        Final_VPA_pt = (9999,9999,9999,9999)
         Final_DUA_d_pt = (9999,9999,9999,9999)
         Final_DUA_m_pt = (9999,9999,9999,9999)
         Final_DUA_u_pt = (9999,9999,9999,9999)
@@ -274,12 +275,14 @@ class Results(SimpleClass):
                 label = (f'{name} {conf:.2f}' if conf else name) if labels else None
                 # annotator.box_label(d.xyxy.squeeze(), label, color=colors(c, True))
                 # Alister add 2024-01-05
-                VLA_pt,DCA_pt,DUA_d_pt,DUA_m_pt,DUA_u_pt,DUA_ut_pt,im = annotator.box_label(d.xyxy.squeeze(), label, color=colors(c, True))
+                VLA_pt,DCA_pt,VPA_pt,DUA_d_pt,DUA_m_pt,DUA_u_pt,DUA_ut_pt,im = annotator.box_label(d.xyxy.squeeze(), label, color=colors(c, True))
                 # print("[result.py]Alister 2024-01-04")
                 if VLA_pt[0]!=9999:
                     Final_VLA_pt = VLA_pt
                 if DCA_pt[0]!=9999:
                     Final_DCA_pt = DCA_pt
+                if VPA_pt[0]!=9999:
+                    Final_VPA_pt = VPA_pt
                 if DUA_d_pt[0]!=9999:
                     Final_DUA_d_pt = DUA_d_pt
                 if DUA_m_pt[0]!=9999:
@@ -300,6 +303,7 @@ class Results(SimpleClass):
         r_p5 = None
         l_vl = None
         r_vl = None
+        vp = None
 
         if Final_DCA_pt[0]!=9999:
             l_p1 = (Final_DCA_pt[0],Final_DCA_pt[1])
@@ -320,6 +324,9 @@ class Results(SimpleClass):
         if Final_VLA_pt[0]!=9999:
             l_vl = (Final_VLA_pt[0],Final_VLA_pt[1])
             r_vl = (Final_VLA_pt[2],Final_VLA_pt[3])
+        
+        if Final_VLA_pt[0]!=9999 and Final_VPA_pt[0]!=9999:
+            vp = (int((Final_VPA_pt[0]+Final_VPA_pt[2])/2.0),Final_VLA_pt[1])
 
         DRAW_MIDDLE_LINE = True
         DRAW_LEFT_LINE = True
@@ -327,6 +334,7 @@ class Results(SimpleClass):
         DRAW_CENTER_LINE = True
         DRAW_LDWS = True
         DRAW_VANISH_LINE = True
+        DRAW_VANISH_POINT=True
         ## Draw Vanish Line
         if DRAW_VANISH_LINE:
             if l_vl is not None and r_vl is not None:
@@ -337,6 +345,7 @@ class Results(SimpleClass):
         color_m = (255,127)
         thickness = 2
         thickness_m = 2
+        thickness_vp = 1
         if l_p1 is not None and l_p2 is not None:
             if DRAW_LEFT_LINE:
                 cv2.line(im, l_p1, l_p2, color, thickness)
@@ -370,6 +379,25 @@ class Results(SimpleClass):
                 m_p4 = (int((Final_DUA_u_pt[0]+Final_DUA_u_pt[2])/2.0),Final_DUA_u_pt[3])
                 m_p5 = (int((Final_DUA_ut_pt[0]+Final_DUA_ut_pt[2])/2.0),Final_DUA_ut_pt[3])
                 cv2.line(im, m_p4, m_p5, color_m, thickness_m)
+        if DRAW_VANISH_POINT:
+            if l_p5 is not None and vp is not None:
+                if DRAW_LEFT_LINE:
+                    #print("l_p4 is not None and l_p5 is not None")
+                    cv2.line(im, l_p5, vp, color, thickness_vp)
+                ## Draw Middle Line
+                if DRAW_MIDDLE_LINE:
+                    m_vp = vp
+                    m_p5 = (int((Final_DUA_ut_pt[0]+Final_DUA_ut_pt[2])/2.0),Final_DUA_ut_pt[3])
+                    cv2.line(im, m_p5, m_vp, color_m, thickness_vp)
+            elif l_p5 is None and vp is not None and l_p4 is not None:
+                if DRAW_LEFT_LINE:
+                    #print("l_p4 is not None and l_p5 is not None")
+                    cv2.line(im, l_p4, vp, color, thickness_vp)
+                ## Draw Middle Line
+                if DRAW_MIDDLE_LINE:
+                    m_vp = vp
+                    m_p4 = (int((Final_DUA_u_pt[0]+Final_DUA_u_pt[2])/2.0),Final_DUA_u_pt[3])
+                    cv2.line(im, m_p4, m_vp, color_m, thickness_vp)
         # elif l_p4 is not None and l_p5 is None:
         #     print("l_p5 is None")
         # elif l_p4 is  None and l_p5 is not None:
@@ -388,6 +416,11 @@ class Results(SimpleClass):
                 cv2.line(im, r_p3, r_p4, color, thickness)
             if r_p4 is not None and r_p5 is not None:
                 cv2.line(im, r_p4, r_p5, color, thickness)
+        if DRAW_VANISH_POINT:
+            if r_p5 is not None and vp is not None:
+                cv2.line(im, r_p5, vp, color, thickness)
+            elif r_p5 is None and vp is not None and r_p4 is not None:
+                cv2.line(im, r_p4, vp, color, thickness_vp)
         if im is not None:
             h,w = im.shape[0],im.shape[1]
             ## Draw Center Line
