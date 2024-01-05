@@ -1,6 +1,6 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 """
-Ultralytics Results, Boxes and Masks classes for handling inference results
+Ultralytics Results, Boxes and Masks classes for handling inference results.
 
 Usage: See https://docs.ultralytics.com/modes/predict/
 """
@@ -14,17 +14,17 @@ import torch
 import cv2
 
 from ultralytics.data.augment import LetterBox
-from ultralytics.utils import LOGGER, SimpleClass, deprecation_warn, ops
+from ultralytics.utils import LOGGER, SimpleClass, ops
 from ultralytics.utils.plotting import Annotator, colors, save_one_box, cls_to_color
+from ultralytics.utils.torch_utils import smart_inference_mode
 
 
 class BaseTensor(SimpleClass):
-    """
-    Base tensor class with additional methods for easy manipulation and device handling.
-    """
+    """Base tensor class with additional methods for easy manipulation and device handling."""
 
     def __init__(self, data, orig_shape) -> None:
-        """Initialize BaseTensor with data and original shape.
+        """
+        Initialize BaseTensor with data and original shape.
 
         Args:
             data (torch.Tensor | np.ndarray): Predictions, such as bboxes, masks and keypoints.
@@ -86,6 +86,8 @@ class Results(SimpleClass):
         boxes (Boxes, optional): A Boxes object containing the detection bounding boxes.
         masks (Masks, optional): A Masks object containing the detection masks.
         probs (Probs, optional): A Probs object containing probabilities of each class for classification task.
+        keypoints (Keypoints, optional): A Keypoints object containing detected keypoints for each object.
+        speed (dict): A dictionary of preprocess, inference, and postprocess speeds in milliseconds per image.
         names (dict): A dictionary of class names.
         drive_map (numpy.ndarray, optional): The drivable area segmentation prediction output.
         drive_map (numpy.ndarray, optional): The lane line segmentation prediction output
@@ -95,8 +97,16 @@ class Results(SimpleClass):
         _keys (tuple): A tuple of attribute names for non-empty attributes.
     """
 
-    #TODO: Add support for main_road
-    def __init__(self, orig_img, path, names, boxes=None, masks=None, probs=None, keypoints=None, drive_map=None, lane_map=None, seg_map=None) -> None:
+    def __init__(self,
+                 orig_img,
+                 path, names,
+                 boxes=None,
+                 masks=None,
+                 probs=None,
+                 keypoints=None,
+                 drive_map=None,
+                 lane_map=None,
+                 seg_map=None) -> None:
         """Initialize the Results class."""
         self.orig_img = orig_img
         self.drive_map = drive_map
@@ -115,15 +125,14 @@ class Results(SimpleClass):
 
     def __getitem__(self, idx):
         """Return a Results object for the specified index."""
-        r = self.new()
-        for k in self.keys:
-            setattr(r, k, getattr(self, k)[idx])
-        return r
+        return self._apply('__getitem__', idx)
 
     def __len__(self):
         """Return the number of detections in the Results object."""
-        for k in self.keys:
-            return len(getattr(self, k))
+        for k in self._keys:
+            v = getattr(self, k)
+            if v is not None:
+                return len(v)
 
     def update(self, boxes=None, masks=None, probs=None):
         """Update the boxes, masks, and probs attributes of the Results object."""
@@ -135,59 +144,61 @@ class Results(SimpleClass):
         if probs is not None:
             self.probs = probs
 
+    def _apply(self, fn, *args, **kwargs):
+        """
+        Applies a function to all non-empty attributes and returns a new Results object with modified attributes. This
+        function is internally called by methods like .to(), .cuda(), .cpu(), etc.
+
+        Args:
+            fn (str): The name of the function to apply.
+            *args: Variable length argument list to pass to the function.
+            **kwargs: Arbitrary keyword arguments to pass to the function.
+
+        Returns:
+            Results: A new Results object with attributes modified by the applied function.
+        """
+        r = self.new()
+        for k in self._keys:
+            v = getattr(self, k)
+            if v is not None:
+                setattr(r, k, getattr(v, fn)(*args, **kwargs))
+        return r
+
     def cpu(self):
         """Return a copy of the Results object with all tensors on CPU memory."""
-        r = self.new()
-        for k in self.keys:
-            setattr(r, k, getattr(self, k).cpu())
-        return r
+        return self._apply('cpu')
 
     def numpy(self):
         """Return a copy of the Results object with all tensors as numpy arrays."""
-        r = self.new()
-        for k in self.keys:
-            setattr(r, k, getattr(self, k).numpy())
-        return r
+        return self._apply('numpy')
 
     def cuda(self):
         """Return a copy of the Results object with all tensors on GPU memory."""
-        r = self.new()
-        for k in self.keys:
-            setattr(r, k, getattr(self, k).cuda())
-        return r
+        return self._apply('cuda')
 
     def to(self, *args, **kwargs):
         """Return a copy of the Results object with tensors on the specified device and dtype."""
-        r = self.new()
-        for k in self.keys:
-            setattr(r, k, getattr(self, k).to(*args, **kwargs))
-        return r
+        return self._apply('to', *args, **kwargs)
 
     def new(self):
         """Return a new Results object with the same image, path, and names."""
         return Results(orig_img=self.orig_img, path=self.path, names=self.names, drive_map=self.drive_map, lane_map=self.lane_map, seg_map=self.seg_map)
 
-    @property
-    def keys(self):
-        """Return a list of non-empty attribute names."""
-        return [k for k in self._keys if getattr(self, k) is not None]
-
     def plot(
-            self,
-            conf=True,
-            line_width=None,
-            font_size=None,
-            font='Arial.ttf',
-            pil=False,
-            img=None,
-            im_gpu=None,
-            kpt_radius=5,
-            kpt_line=True,
-            labels=True,
-            boxes=True,
-            masks=True,
-            probs=True,
-            **kwargs  # deprecated args TODO: remove support in 8.2
+        self,
+        conf=True,
+        line_width=None,
+        font_size=None,
+        font='Arial.ttf',
+        pil=False,
+        img=None,
+        im_gpu=None,
+        kpt_radius=5,
+        kpt_line=True,
+        labels=True,
+        boxes=True,
+        masks=True,
+        probs=True,
     ):
         """
         Plots the detection results on an input RGB image. Accepts a numpy array (cv2) or a PIL Image.
@@ -219,24 +230,13 @@ class Results(SimpleClass):
             results = model('bus.jpg')  # results list
             for r in results:
                 im_array = r.plot()  # plot a BGR numpy array of predictions
-                im = Image.fromarray(im[..., ::-1])  # RGB PIL image
+                im = Image.fromarray(im_array[..., ::-1])  # RGB PIL image
                 im.show()  # show image
                 im.save('results.jpg')  # save image
             ```
         """
         if img is None and isinstance(self.orig_img, torch.Tensor):
-            img = (self.orig_img[0].detach().permute(1, 2, 0).cpu().contiguous() * 255).to(torch.uint8).numpy()
-
-        # Deprecation warn TODO: remove in 8.2
-        if 'show_conf' in kwargs:
-            deprecation_warn('show_conf', 'conf')
-            conf = kwargs['show_conf']
-            assert isinstance(conf, bool), '`show_conf` should be of boolean type, i.e, show_conf=True/False'
-
-        if 'line_thickness' in kwargs:
-            deprecation_warn('line_thickness', 'line_width')
-            line_width = kwargs['line_thickness']
-            assert isinstance(line_width, int), '`line_width` should be of int type, i.e, line_width=3'
+            img = (self.orig_img[0].detach().permute(1, 2, 0).contiguous() * 255).to(torch.uint8).cpu().numpy()
 
         names = self.names
         pred_boxes, show_boxes = self.boxes, boxes
@@ -259,18 +259,21 @@ class Results(SimpleClass):
             idx = pred_boxes.cls if pred_boxes else range(len(pred_masks))
             annotator.masks(pred_masks.data, colors=[colors(x, True) for x in idx], im_gpu=im_gpu)
 
+        Final_VLA_pt = (9999,9999,9999,9999)
+        Final_DCA_pt = (9999,9999,9999,9999)
+        Final_DUA_d_pt = (9999,9999,9999,9999)
+        Final_DUA_m_pt = (9999,9999,9999,9999)
+        Final_DUA_u_pt = (9999,9999,9999,9999)
+        Final_DUA_ut_pt = (9999,9999,9999,9999)
+        im = None
         # Plot Detect results
         if pred_boxes and show_boxes:
-            Final_VLA_pt = (9999,9999,9999,9999)
-            Final_DCA_pt = (9999,9999,9999,9999)
-            Final_DUA_d_pt = (9999,9999,9999,9999)
-            Final_DUA_m_pt = (9999,9999,9999,9999)
-            Final_DUA_u_pt = (9999,9999,9999,9999)
-            Final_DUA_ut_pt = (9999,9999,9999,9999)
             for d in reversed(pred_boxes):
                 c, conf, id = int(d.cls), float(d.conf) if conf else None, None if d.id is None else int(d.id.item())
                 name = ('' if id is None else f'id:{id} ') + names[c]
                 label = (f'{name} {conf:.2f}' if conf else name) if labels else None
+                # annotator.box_label(d.xyxy.squeeze(), label, color=colors(c, True))
+                # Alister add 2024-01-05
                 VLA_pt,DCA_pt,DUA_d_pt,DUA_m_pt,DUA_u_pt,DUA_ut_pt,im = annotator.box_label(d.xyxy.squeeze(), label, color=colors(c, True))
                 # print("[result.py]Alister 2024-01-04")
                 if VLA_pt[0]!=9999:
@@ -326,13 +329,14 @@ class Results(SimpleClass):
         DRAW_VANISH_LINE = True
         ## Draw Vanish Line
         if DRAW_VANISH_LINE:
-            cv2.line(im, l_vl, r_vl, (255,0,200), 1)
+            if l_vl is not None and r_vl is not None:
+                cv2.line(im, l_vl, r_vl, (255,0,200), 1)
 
         ## Draw Left Line
         color = (127,255,0)
         color_m = (255,127)
-        thickness = 8
-        thickness_m = 6
+        thickness = 2
+        thickness_m = 2
         if l_p1 is not None and l_p2 is not None:
             if DRAW_LEFT_LINE:
                 cv2.line(im, l_p1, l_p2, color, thickness)
@@ -374,7 +378,7 @@ class Results(SimpleClass):
         #     print("l_p4 is None and l_p5 is None")
         ## Draw Right Line
         color = (0,127,255)
-        thickness = 8
+        thickness = 2
         if DRAW_RIGHT_LINE:
             if r_p1 is not None and r_p2 is not None:
                 cv2.line(im, r_p1, r_p2, color, thickness)
@@ -384,28 +388,29 @@ class Results(SimpleClass):
                 cv2.line(im, r_p3, r_p4, color, thickness)
             if r_p4 is not None and r_p5 is not None:
                 cv2.line(im, r_p4, r_p5, color, thickness)
+        if im is not None:
+            h,w = im.shape[0],im.shape[1]
+            ## Draw Center Line
+            if DRAW_CENTER_LINE:
+                c_x = int(w/2.0)
+                c_y1 = int(h*0.80)
+                c_y2 = int(h*0.99)
+                c1 = (c_x,c_y1)
+                c2 = (c_x,c_y2)
+                cv2.line(im, c1, c2, (255,255,0), 2)
+            ## Draw Vanish Point Line
+            # Not Implemented
 
-        h,w = im.shape[0],im.shape[1]
-        ## Draw Center Line
-        if DRAW_CENTER_LINE:
-            c_x = int(w/2.0)
-            c_y1 = int(h*0.80)
-            c_y2 = int(h*0.99)
-            c1 = (c_x,c_y1)
-            c2 = (c_x,c_y2)
-            cv2.line(im, c1, c2, (255,255,0), 2)
-        ## Draw Vanish Point Line
-        # Not Implemented
+            ## Draw LDWS
+            if DRAW_LDWS:
+                if l_p1 is not None and r_p1 is not None:
+                    LD_TH = int(abs(r_p1[0] - l_p1[0]) / 3.5) 
+                    driver_x = int((l_p1[0] + r_p1[0])/2.0)
+                    departure_distance = abs(driver_x - int(w/2.0))
+                    if departure_distance>LD_TH:
+                        text = 'DEPARTURE WARNING !'
+                        cv2.putText(im, text, (int(w/8.0), int(h/2.0)), cv2.FONT_HERSHEY_PLAIN,2.5, (0, 0, 255), 4, cv2.LINE_AA)
 
-        ## Draw LDWS
-        if DRAW_LDWS:
-            if l_p1 is not None and r_p1 is not None:
-                LD_TH = int(abs(r_p1[0] - l_p1[0]) / 3.5) 
-                driver_x = int((l_p1[0] + r_p1[0])/2.0)
-                departure_distance = abs(driver_x - int(w/2.0))
-                if departure_distance>LD_TH:
-                    text = 'DEPARTURE WARNING !'
-                    cv2.putText(im, text, (int(w/8.0), int(h/2.0)), cv2.FONT_HERSHEY_PLAIN,10, (0, 0, 255), 16, cv2.LINE_AA)
         # Plot Classify results
         if pred_probs is not None and show_probs:
             text = ',\n'.join(f'{names[j] if names else j} {pred_probs.data[j]:.2f}' for j in pred_probs.top5)
@@ -419,29 +424,27 @@ class Results(SimpleClass):
 
         # Plot ADAS Segmentation results
         img = annotator.result()
-        if self.drive_map is not None:
-            self.drive_map = np.squeeze(self.drive_map.detach().cpu().numpy())
-            # self.drive_raw = cls_to_color(self.drive_map, 'drive')
-            self.drive_map = cv2.resize(self.drive_map, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
-            self.drive_map = cls_to_color(self.drive_map, 'drive')
-            # img[self.drive_map != 0] = img[self.drive_map != 0] * 0.5 + self.drive_map[self.drive_map != 0] * 0.5
-        if self.lane_map is not None:
-            self.lane_map = np.squeeze(self.lane_map.detach().cpu().numpy())
-            # self.lane_raw = cls_to_color(self.lane_map, 'lane')
-            self.lane_map = cv2.resize(self.lane_map, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
-            self.lane_map = cls_to_color(self.lane_map, 'lane')
-            # img[self.lane_map != 0] = img[self.lane_map != 0] * 0.5 + self.lane_map[self.lane_map != 0] * 0.5
-        if self.seg_map is not None:
-            self.seg_map = np.squeeze(self.seg_map.detach().cpu().numpy())
-            self.seg_map = cv2.resize(self.seg_map, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
-            self.seg_map = cls_to_color(self.seg_map, 'seg')
-            # img[self.seg_map != 0] = img[self.seg_map != 0] * 0.5 + self.seg_map[self.seg_map != 0] * 0.5
+        # if self.drive_map is not None:
+        #     self.drive_map = np.squeeze(self.drive_map.detach().cpu().numpy())
+        #     # self.drive_raw = cls_to_color(self.drive_map, 'drive')
+        #     self.drive_map = cv2.resize(self.drive_map, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
+        #     self.drive_map = cls_to_color(self.drive_map, 'drive')
+        #     img[self.drive_map != 0] = img[self.drive_map != 0] * 0.5 + self.drive_map[self.drive_map != 0] * 0.5
+        # if self.lane_map is not None:
+        #     self.lane_map = np.squeeze(self.lane_map.detach().cpu().numpy())
+        #     # self.lane_raw = cls_to_color(self.lane_map, 'lane')
+        #     self.lane_map = cv2.resize(self.lane_map, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
+        #     self.lane_map = cls_to_color(self.lane_map, 'lane')
+        #     img[self.lane_map != 0] = img[self.lane_map != 0] * 0.5 + self.lane_map[self.lane_map != 0] * 0.5
+        # if self.seg_map is not None:
+        #     self.seg_map = np.squeeze(self.seg_map.detach().cpu().numpy())
+        #     self.seg_map = cv2.resize(self.seg_map, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
+        #     self.seg_map = cls_to_color(self.seg_map, 'seg')
+        #     img[self.seg_map != 0] = img[self.seg_map != 0] * 0.5 + self.seg_map[self.seg_map != 0] * 0.5
         return img, self.drive_map, self.lane_map
 
     def verbose(self):
-        """
-        Return log string for each task.
-        """
+        """Return log string for each task."""
         log_string = ''
         probs = self.probs
         boxes = self.boxes
@@ -501,14 +504,10 @@ class Results(SimpleClass):
         if self.probs is not None:
             LOGGER.warning('WARNING ⚠️ Classify task do not support `save_crop`.')
             return
-        if isinstance(save_dir, str):
-            save_dir = Path(save_dir)
-        if isinstance(file_name, str):
-            file_name = Path(file_name)
         for d in self.boxes:
             save_one_box(d.xyxy,
                          self.orig_img.copy(),
-                         file=save_dir / self.names[int(d.cls)] / f'{file_name.stem}.jpg',
+                         file=Path(save_dir) / self.names[int(d.cls)] / f'{Path(file_name).stem}.jpg',
                          BGR=True)
 
     def tojson(self, normalize=False):
@@ -624,19 +623,12 @@ class Boxes(BaseTensor):
         xywh[..., [1, 3]] /= self.orig_shape[0]
         return xywh
 
-    @property
-    def boxes(self):
-        """Return the raw bboxes tensor (deprecated)."""
-        LOGGER.warning("WARNING ⚠️ 'Boxes.boxes' is deprecated. Use 'Boxes.data' instead.")
-        return self.data
-
 
 class Masks(BaseTensor):
     """
     A class for storing and manipulating detection masks.
 
     Attributes:
-        segments (list): Deprecated property for segments (normalized).
         xy (list): A list of segments in pixel coordinates.
         xyn (list): A list of normalized segments.
 
@@ -655,15 +647,6 @@ class Masks(BaseTensor):
 
     @property
     @lru_cache(maxsize=1)
-    def segments(self):
-        """Return segments (normalized). Deprecated; use xyn property instead."""
-        LOGGER.warning(
-            "WARNING ⚠️ 'Masks.segments' is deprecated. Use 'Masks.xyn' for segments (normalized) and 'Masks.xy' for segments (pixels) instead."
-        )
-        return self.xyn
-
-    @property
-    @lru_cache(maxsize=1)
     def xyn(self):
         """Return normalized segments."""
         return [
@@ -677,12 +660,6 @@ class Masks(BaseTensor):
         return [
             ops.scale_coords(self.data.shape[1:], x, self.orig_shape, normalize=False)
             for x in ops.masks2segments(self.data)]
-
-    @property
-    def masks(self):
-        """Return the raw masks tensor. Deprecated; use data attribute instead."""
-        LOGGER.warning("WARNING ⚠️ 'Masks.masks' is deprecated. Use 'Masks.data' instead.")
-        return self.data
 
 
 class Keypoints(BaseTensor):
@@ -701,10 +678,14 @@ class Keypoints(BaseTensor):
         to(device, dtype): Returns a copy of the keypoints tensor with the specified device and dtype.
     """
 
+    @smart_inference_mode()  # avoid keypoints < conf in-place error
     def __init__(self, keypoints, orig_shape) -> None:
         """Initializes the Keypoints object with detection keypoints and original image size."""
         if keypoints.ndim == 2:
             keypoints = keypoints[None, :]
+        if keypoints.shape[2] == 3:  # x, y, conf
+            mask = keypoints[..., 2] < 0.5  # points with conf < 0.5 (not visible)
+            keypoints[..., :2][mask] = 0
         super().__init__(keypoints, orig_shape)
         self.has_visible = self.data.shape[-1] == 3
 
@@ -748,6 +729,7 @@ class Probs(BaseTensor):
     """
 
     def __init__(self, probs, orig_shape=None) -> None:
+        """Initialize the Probs class with classification probabilities and optional original shape of the image."""
         super().__init__(probs, orig_shape)
 
     @property
