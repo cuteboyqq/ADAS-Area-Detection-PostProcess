@@ -258,15 +258,16 @@ class Results(SimpleClass):
                     2, 0, 1).flip(0).contiguous() / 255
             idx = pred_boxes.cls if pred_boxes else range(len(pred_masks))
             annotator.masks(pred_masks.data, colors=[colors(x, True) for x in idx], im_gpu=im_gpu)
-
+        Final_VLA_pt = (9999,9999,9999,9999)
+        Final_DCA_pt = (9999,9999,9999,9999)
+        Final_DUA_d_pt = (9999,9999,9999,9999)
+        Final_DUA_m_pt = (9999,9999,9999,9999)
+        Final_DUA_u_pt = (9999,9999,9999,9999)
+        Final_DUA_ut_pt = (9999,9999,9999,9999)
+        im = None
         # Plot Detect results
         if pred_boxes and show_boxes:
-            Final_VLA_pt = (9999,9999,9999,9999)
-            Final_DCA_pt = (9999,9999,9999,9999)
-            Final_DUA_d_pt = (9999,9999,9999,9999)
-            Final_DUA_m_pt = (9999,9999,9999,9999)
-            Final_DUA_u_pt = (9999,9999,9999,9999)
-            Final_DUA_ut_pt = (9999,9999,9999,9999)
+            
             global HISTORY_VLA_pt
             for d in reversed(pred_boxes):
                 c, conf, id = int(d.cls), float(d.conf) if conf else None, None if d.id is None else int(d.id.item())
@@ -334,10 +335,11 @@ class Results(SimpleClass):
         ADAS_Key_Points = (p1,p2,p3,p4,p5)
         if pred_boxes and show_boxes:
             for d in reversed(pred_boxes):
-                    c, conf, id = int(d.cls), float(d.conf) if conf else None, None if d.id is None else int(d.id.item())
-                    name = ('' if id is None else f'id:{id} ') + names[c]
-                    label = (f'{name} {conf:.2f}' if conf else name) if labels else None
-                    annotator.box_FCWS_label(d.xyxy.squeeze(), ADAS_Key_Points, HISTORY_VLA_pt[1], label, color=colors(c, True))   
+                c, conf, id = int(d.cls), float(d.conf) if conf else None, None if d.id is None else int(d.id.item())
+                name = ('' if id is None else f'id:{id} ') + names[c]
+                label = (f'{name} {conf:.2f}' if conf else name) if labels else None
+                
+                annotator.box_FCWS_label(d.xyxy.squeeze(), ADAS_Key_Points, HISTORY_VLA_pt[1], label, color=colors(c, True))   
         DRAW_MIDDLE_LINE = True
         DRAW_LEFT_LINE = True
         DRAW_RIGHT_LINE = True
@@ -347,7 +349,8 @@ class Results(SimpleClass):
         DRAW_FCWS = True
         ## Draw Vanish Line
         if DRAW_VANISH_LINE:
-            cv2.line(im, l_vl, r_vl, (255,0,200), 1)
+            if im is not None:
+                cv2.line(im, l_vl, r_vl, (255,0,200), 1)
 
         ## Draw Left Line
         color = (127,255,0)
@@ -405,16 +408,16 @@ class Results(SimpleClass):
                 cv2.line(im, r_p3, r_p4, color, thickness)
             if r_p4 is not None and r_p5 is not None:
                 cv2.line(im, r_p4, r_p5, color, thickness)
-
-        h,w = im.shape[0],im.shape[1]
-        ## Draw Center Line
-        if DRAW_CENTER_LINE:
-            c_x = int(w/2.0)
-            c_y1 = int(h*0.80)
-            c_y2 = int(h*0.99)
-            c1 = (c_x,c_y1)
-            c2 = (c_x,c_y2)
-            cv2.line(im, c1, c2, (255,255,0), 2)
+        if im is not None:
+            h,w = im.shape[0],im.shape[1]
+            ## Draw Center Line
+            if DRAW_CENTER_LINE:
+                c_x = int(w/2.0)
+                c_y1 = int(h*0.80)
+                c_y2 = int(h*0.99)
+                c1 = (c_x,c_y1)
+                c2 = (c_x,c_y2)
+                cv2.line(im, c1, c2, (255,255,0), 2)
         ## Draw Vanish Point Line
         # Not Implemented
 

@@ -378,6 +378,8 @@ class Annotator:
             SHOW_FC_RANGE = True
             distance = 9999
             final_distance = 9999
+            CAMERA_HEIGHT = 1.50
+            FC_DISTANCE_TH = 15
             lab_type_mapping = {'small vehicle':'V',
                             'big vehicle':'V',
                             'perdestrian':'P',
@@ -398,8 +400,8 @@ class Annotator:
                         y_range = float((box[3] - VLA_l_y) / h)
                         x_range_ratio = float(x_range / w)
                         # 0.5 : 25 = 1 : 50
-                        x_distance = int(x_range_ratio * float(4.0/y_range))
-                        distance = int( (1.35 * 750) / (box[3] - VLA_l_y) )
+                        x_distance = int(x_range_ratio * float(2.0/y_range))
+                        distance = int( (CAMERA_HEIGHT * 750) / (box[3] - VLA_l_y) )
                         print(f'distance:{distance},x_distance:{x_distance}')
                         final_distance = int(math.sqrt( (distance**2) + (x_distance**2)))
                         print(f' {la_type} final_distance : {final_distance}')
@@ -457,12 +459,14 @@ class Annotator:
                             c2 = (c_x,c_y2)
                             cv2.line(im, c1, c2, fc_color, 2)
                 global HISTORY_DISTANCE
-                if final_distance<HISTORY_DISTANCE and final_distance != 9999 and final_distance < 15.0 and (la_type=='vehicle' or la=='perdestrain' or la=='rider'):
+                if HISTORY_DISTANCE - final_distance  >= 1.0 and final_distance != 9999 and final_distance < FC_DISTANCE_TH and (la_type=='vehicle' or la=='perdestrain' or la=='rider'):
                     if DUA_up_p_r is not None and DUA_up_p_l is not None:
                         left_x = int(DUA_up_p_l[0] + 25)
                         right_x = int(DUA_up_p_r[0] - 25)
+                        road_width = abs(right_x-left_x)
+                        mid_x = int((left_x + right_x)/2.0)
                         box_center_x = int((int(box[0])+int(box[2]))/2.0)
-                        if box_center_x >= left_x and box_center_x<=right_x:
+                        if box_center_x >= left_x and box_center_x<=right_x and abs(box_center_x-mid_x)< road_width/4.0:
                             HAVE_FC = True
                             text = 'COLLISION WARNING !'
                             print(f"final_distance : {final_distance},HISTORY_DISTANCE: {HISTORY_DISTANCE} ")
@@ -473,8 +477,10 @@ class Annotator:
                     elif  DUA_mid_p_r is not None and DUA_mid_p_l is not None:
                         left_x = int(DUA_mid_p_l[0] + 25)
                         right_x = int(DUA_mid_p_r[0] - 25)
+                        road_width = abs(right_x-left_x)
+                        mid_x = int((left_x + right_x)/2.0)
                         box_center_x = int((int(box[0])+int(box[2]))/2.0)
-                        if box_center_x >= left_x and box_center_x<=right_x:
+                        if box_center_x >= left_x and box_center_x<=right_x and abs(box_center_x-mid_x)< road_width/4.0:
                             ## update HISTORY_DISTANCE
                             # HISTORY_DISTANCE = final_distance   
                             HAVE_FC = True
@@ -485,8 +491,20 @@ class Annotator:
                     elif  DUA_down_p_r is not None and DUA_down_p_l is not None:
                         left_x = int(DUA_down_p_l[0] + 25)
                         right_x = int(DUA_down_p_r[0] - 25)
+                        road_width = abs(right_x-left_x)
+                        mid_x = int((left_x + right_x)/2.0)
                         box_center_x = int((int(box[0])+int(box[2]))/2.0)
-                        if box_center_x >= left_x and box_center_x<=right_x:
+                        if box_center_x >= left_x and box_center_x <=right_x and abs(box_center_x-mid_x)< road_width/4.0:
+                            ## update HISTORY_DISTANCE
+                            # HISTORY_DISTANCE = final_distance   
+                            HAVE_FC = True
+                            text = 'COLLISION WARNING !'
+                            print(f"final_distance : {final_distance},HISTORY_DISTANCE: {HISTORY_DISTANCE} ")
+                            print("===============collision warning ============================")
+                            cv2.putText(self.im, text, (int(w/6.0), int(h/3.0)), cv2.FONT_HERSHEY_PLAIN,6, (255, 127, 0), 8, cv2.LINE_AA)
+                    else:
+                        box_center_x = int((int(box[0])+int(box[2]))/2.0)
+                        if abs(box_center_x- int(im.shape[1]/2.0) ) < 100:
                             ## update HISTORY_DISTANCE
                             # HISTORY_DISTANCE = final_distance   
                             HAVE_FC = True
@@ -500,7 +518,7 @@ class Annotator:
                         right_x = int(DUA_up_p_r[0] - 25)
                         mid_x = int((left_x + right_x)/2.0)
                         box_center_x = int((int(box[0])+int(box[2]))/2.0)
-                        if box_center_x >= left_x and box_center_x<=right_x and abs(mid_x-box_center_x)<80:
+                        if box_center_x >= left_x and box_center_x<=right_x and abs(mid_x-box_center_x)<80: # key point : abs(mid_x-box_center_x)<80
                             ## update HISTORY_DISTANCE
                             print(f"----------HISTORY_DISTANCE = {HISTORY_DISTANCE} -------------")
                             HISTORY_DISTANCE = int(final_distance)
