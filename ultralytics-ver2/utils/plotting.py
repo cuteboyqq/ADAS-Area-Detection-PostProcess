@@ -498,8 +498,9 @@ class Annotator:
                     if DUA_up_p_r is not None and DUA_up_p_l is not None:
                         left_x = int(DUA_up_p_l[0] + 25)
                         right_x = int(DUA_up_p_r[0] - 25)
+                        mid_x = int((left_x + right_x)/2.0)
                         box_center_x = int((int(box[0])+int(box[2]))/2.0)
-                        if box_center_x >= left_x and box_center_x<=right_x:
+                        if box_center_x >= left_x and box_center_x<=right_x and abs(mid_x-box_center_x)<80:
                             ## update HISTORY_DISTANCE
                             print(f"----------HISTORY_DISTANCE = {HISTORY_DISTANCE} -------------")
                             HISTORY_DISTANCE = int(final_distance)
