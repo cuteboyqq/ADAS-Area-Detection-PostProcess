@@ -3,7 +3,8 @@
 import contextlib
 import math
 import warnings
-import os
+import os 
+
 from pathlib import Path
 
 import cv2
@@ -13,12 +14,10 @@ import torch
 from PIL import Image, ImageDraw, ImageFont
 from PIL import __version__ as pil_version
 
-from ultralytics.utils import LOGGER, TryExcept, plt_settings, threaded
+from ultralytics.utils import LOGGER, TryExcept, ops, plt_settings, threaded
 
 from .checks import check_font, check_version, is_ascii
 from .files import increment_path
-from .ops import clip_boxes, scale_image, xywh2xyxy, xyxy2xywh
-
 HISTORY_DISTANCE = 9999
 
 class Colors:
@@ -79,6 +78,7 @@ class Annotator:
         assert im.data.contiguous, 'Image not contiguous. Apply np.ascontiguousarray(im) to Annotator() input images.'
         non_ascii = not is_ascii(example)  # non-latin labels, i.e. asian, arabic, cyrillic
         self.pil = pil or non_ascii
+        self.lw = line_width or max(round(sum(im.shape) / 2 * 0.003), 2)  # line width
         if self.pil:  # use PIL
             self.im = im if isinstance(im, Image.Image) else Image.fromarray(im)
             self.draw = ImageDraw.Draw(self.im)
@@ -93,7 +93,8 @@ class Annotator:
                 self.font.getsize = lambda x: self.font.getbbox(x)[2:4]  # text width, height
         else:  # use cv2
             self.im = im
-        self.lw = line_width or max(round(sum(im.shape) / 2 * 0.003), 2)  # line width
+            self.tf = max(self.lw - 1, 1)  # font thickness
+            self.sf = self.lw / 3  # font scale
         # Pose
         self.skeleton = [[16, 14], [14, 12], [17, 15], [15, 13], [12, 13], [6, 12], [7, 13], [6, 7], [6, 8], [7, 9],
                          [8, 10], [9, 11], [2, 3], [1, 2], [1, 3], [2, 4], [3, 5], [4, 6], [5, 7]]
@@ -101,6 +102,39 @@ class Annotator:
         self.limb_color = colors.pose_palette[[9, 9, 9, 9, 7, 7, 7, 0, 0, 0, 0, 0, 16, 16, 16, 16, 16, 16, 16]]
         self.kpt_color = colors.pose_palette[[16, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 9, 9, 9, 9, 9, 9]]
 
+    # def box_label(self, box, label='', color=(128, 128, 128), txt_color=(255, 255, 255)):
+    #     """Add one xyxy box to image with label."""
+    #     if isinstance(box, torch.Tensor):
+    #         box = box.tolist()
+    #     if self.pil or not is_ascii(label):
+    #         self.draw.rectangle(box, width=self.lw, outline=color)  # box
+    #         if label:
+    #             w, h = self.font.getsize(label)  # text width, height
+    #             outside = box[1] - h >= 0  # label fits outside box
+    #             self.draw.rectangle(
+    #                 (box[0], box[1] - h if outside else box[1], box[0] + w + 1,
+    #                  box[1] + 1 if outside else box[1] + h + 1),
+    #                 fill=color,
+    #             )
+    #             # self.draw.text((box[0], box[1]), label, fill=txt_color, font=self.font, anchor='ls')  # for PIL>8.0
+    #             self.draw.text((box[0], box[1] - h if outside else box[1]), label, fill=txt_color, font=self.font)
+    #     else:  # cv2
+    #         p1, p2 = (int(box[0]), int(box[1])), (int(box[2]), int(box[3]))
+    #         cv2.rectangle(self.im, p1, p2, color, thickness=self.lw, lineType=cv2.LINE_AA)
+    #         if label:
+    #             w, h = cv2.getTextSize(label, 0, fontScale=self.sf, thickness=self.tf)[0]  # text width, height
+    #             outside = p1[1] - h >= 3
+    #             p2 = p1[0] + w, p1[1] - h - 3 if outside else p1[1] + h + 3
+    #             cv2.rectangle(self.im, p1, p2, color, -1, cv2.LINE_AA)  # filled
+    #             cv2.putText(self.im,
+    #                         label, (p1[0], p1[1] - 2 if outside else p1[1] + h + 2),
+    #                         0,
+    #                         self.sf,
+    #                         txt_color,
+    #                         thickness=self.tf,
+    #                         lineType=cv2.LINE_AA)
+    
+    # Alister add 2024-01-05
     def box_label(self, box, label='', color=(128, 128, 128), txt_color=(255, 255, 255)):
         VLA_l_x = 9999
         VLA_l_y = 9999
@@ -111,6 +145,11 @@ class Annotator:
         DCA_l_y = 9999
         DCA_r_x = 9999
         DCA_r_y = 9999
+
+        VPA_l_x = 9999
+        VPA_l_y = 9999
+        VPA_r_x = 9999
+        VPA_r_y = 9999
 
         DUA_ut_l_x = 9999
         DUA_ut_l_y = 9999
@@ -152,8 +191,12 @@ class Annotator:
             la_type = label.split(" ")[1]
             DRAW_TXT = True
             # print(f"la = {la}, la_type={la_type}")
-            SHOW_DISTANCE = True
-            distance = 9999
+            if la=='small':
+                cv2.rectangle(self.im, p1, p2, color, thickness=1, lineType=cv2.LINE_AA) #self.lw
+            if la=='big':
+                cv2.rectangle(self.im, p1, p2, color, thickness=1, lineType=cv2.LINE_AA) #self.lw
+            if la=='perdestrian':
+                cv2.rectangle(self.im, p1, p2, color, thickness=1, lineType=cv2.LINE_AA) #self.lw
             if la == 'VLA':
                 DRAW_TXT= False
                 # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
@@ -169,18 +212,12 @@ class Annotator:
                 DCA_l_y = int(box[3])
                 DCA_r_x = int(box[2])
                 DCA_r_y = int(box[3])
-            # if SHOW_DISTANCE:
-            #     if VLA_l_y != 9999 and la!='VLA':
-            #         # 𝐻/𝐷=  ℎ/𝑓, 𝑠𝑜 𝐷=𝐻∗𝑓/ℎ
-            #         # 𝐻=1.5,𝑓=750,ℎ=〖𝑣𝑒ℎ𝑖𝑐𝑙𝑒_𝑑𝑖𝑠𝑡𝑎𝑛𝑐𝑒〗_(𝑠𝑒𝑛𝑠𝑜𝑟_𝑠𝑐𝑟𝑒𝑒𝑛)−〖𝑣𝑎𝑛𝑖𝑠ℎ_𝑑𝑖𝑠𝑡𝑎𝑛𝑐𝑒〗_(𝑠𝑒𝑛𝑠𝑜𝑟_𝑠𝑐𝑟𝑒𝑒𝑛)
-            #         if (int((box[3] + box[1])/2.0) - VLA_l_y) != 0:
-            #             distance = (1.5 * 750) / (int((box[3] + box[1])/2.0) - VLA_l_y)
-            #             print(f' {la_type} distance : {distance}')
-            #             label = la + ', ' + str(distance)
-            #     else:
-            #         print("VLA_l_y = 9999 or la is VLA")
-            # if la=='VPA':
+            if la=='VPA':
                 # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
+                VPA_l_x = int(box[0])
+                VPA_l_y = int(box[3])
+                VPA_r_x = int(box[2])
+                VPA_r_y = int(box[3])
             if la == 'DUA' and la_type=='upest':
                 DRAW_TXT= False
                 # print("DUA upest")
@@ -210,137 +247,28 @@ class Annotator:
                 DUA_d_r_x = int(box[2])
                 DUA_d_r_y = int(box[3])
                 # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
-            # if la == 'perdestrain' or la_type=='vehicle' or la_type=='marking' or la_type=='light' or la_type=='sign':
-            #     cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA)
-            # if la_type=='vehicle':
-            #     cv2.rectangle(self.im, p1, p2, (255,127,0), thickness=2, lineType=cv2.LINE_AA)
-            # if label and DRAW_TXT:
-            #     tf = max(self.lw - 1, 1)  # font thickness
-            #     w, h = cv2.getTextSize(label, 0, fontScale=self.lw / 3, thickness=tf)[0]  # text width, height
-            #     outside = p1[1] - h >= 3
-            #     p2 = p1[0] + w, p1[1] - h - 3 if outside else p1[1] + h + 3
-            #     # cv2.rectangle(self.im, p1, p2, color, -1, cv2.LINE_AA)  # filled
-            #     cv2.putText(self.im,
-            #                 label, (p1[0], p1[1] - 2 if outside else p1[1] + h + 2),
-            #                 0,
-            #                 self.lw / 9, #/3
-            #                 txt_color,
-            #                 thickness=2,# tf
-            #                 lineType=cv2.LINE_AA)
+            if label and DRAW_TXT:
+                tf = max(self.lw - 1, 1)  # font thickness
+                w, h = cv2.getTextSize(label, 0, fontScale=self.lw / 3, thickness=tf)[0]  # text width, height
+                outside = p1[1] - h >= 3
+                p2 = p1[0] + w, p1[1] - h - 3 if outside else p1[1] + h + 3
+                # cv2.rectangle(self.im, p1, p2, color, -1, cv2.LINE_AA)  # filled
+                # cv2.putText(self.im,
+                #             label, (p1[0], p1[1] - 2 if outside else p1[1] + h + 2),
+                #             0,
+                #             self.lw / 6, #/3
+                #             txt_color,
+                #             thickness=1,# tf
+                #             lineType=cv2.LINE_AA)
         VLA_pt = (VLA_l_x,VLA_l_y,VLA_r_x,VLA_r_y)                    
         DCA_pt = (DCA_l_x,DCA_l_y,DCA_r_x,DCA_r_y)
+        VPA_pt = (VPA_l_x,VPA_l_y,VPA_r_x,VPA_r_y)
         DUA_ut_pt = (DUA_ut_l_x,DUA_ut_l_y,DUA_ut_r_x,DUA_ut_r_y)
         DUA_u_pt = (DUA_u_l_x,DUA_u_l_y,DUA_u_r_x,DUA_u_r_y)
         DUA_m_pt = (DUA_m_l_x,DUA_m_l_y,DUA_m_r_x,DUA_m_r_y)
         DUA_d_pt = (DUA_d_l_x,DUA_d_l_y,DUA_d_r_x,DUA_d_r_y)
-        return VLA_pt,DCA_pt,DUA_d_pt,DUA_m_pt,DUA_u_pt,DUA_ut_pt,self.im
+        return VLA_pt,DCA_pt,VPA_pt,DUA_d_pt,DUA_m_pt,DUA_u_pt,DUA_ut_pt,self.im
     
-
-    #=====================================================================================================================
-    def box_distance_label(self, box, VLA_l_y, label='', color=(128, 128, 128), txt_color=(255, 255, 255)):
-        """Add one xyxy box to image with label."""
-        la = label.split(" ")[0]
-        la_type = label.split(" ")[1]
-        if la_type=='vehicle':
-            color=(200,0,0)
-        if isinstance(box, torch.Tensor):
-            box = box.tolist()
-        if self.pil or not is_ascii(label):
-            self.draw.rectangle(box, width=self.lw, outline=color)  # box
-            if label:
-                w, h = self.font.getsize(label)  # text width, height
-                outside = box[1] - h >= 0  # label fits outside box
-                self.draw.rectangle(
-                    (box[0], box[1] - h if outside else box[1], box[0] + w + 1,
-                     box[1] + 1 if outside else box[1] + h + 1),
-                    fill=color,
-                )
-                # self.draw.text((box[0], box[1]), label, fill=txt_color, font=self.font, anchor='ls')  # for PIL>8.0
-                self.draw.text((box[0], box[1] - h if outside else box[1]), label, fill=txt_color, font=self.font)
-        else:  # cv2
-            p1, p2 = (int(box[0]), int(box[1])), (int(box[2]), int(box[3]))
-            la = label.split(" ")[0]
-            la_type = label.split(" ")[1]
-            if la!='perdestrian' and la!='rider':
-                lab = la + ' ' + la_type
-            else:
-                lab = la
-            DRAW_TXT = False
-            print(f"la = {la}, la_type={la_type}")
-            SHOW_DISTANCE = True
-            SHOW_FCW = True
-            SHOW_FC_RANGE = True
-            distance = 9999
-            final_distance = 9999
-            lab_type_mapping = {'small vehicle':'V',
-                            'big vehicle':'V',
-                            'perdestrian':'P',
-                            'rider':'R',
-                            'lane marking':'SS',
-                            'traffic light':'TL',
-                            'traffic sign': 'TS',
-                            'stop sign': 'LM' #show label is something wrong
-                            }
-            if SHOW_DISTANCE:
-                if VLA_l_y is not None and (la!='VLA' and la!='DCA' and la!='VPA' and la!='DUA'): #this case need vansih line y
-                    # 𝐻/𝐷=  ℎ/𝑓, 𝑠𝑜 𝐷=𝐻∗𝑓/ℎ
-                    # 𝐻=1.5,𝑓=750,ℎ=〖𝑣𝑒ℎ𝑖𝑐𝑙𝑒_𝑑𝑖𝑠𝑡𝑎𝑛𝑐𝑒〗_(𝑠𝑒𝑛𝑠𝑜𝑟_𝑠𝑐𝑟𝑒𝑒𝑛)−〖𝑣𝑎𝑛𝑖𝑠ℎ_𝑑𝑖𝑠𝑡𝑎𝑛𝑐𝑒〗_(𝑠𝑒𝑛𝑠𝑜𝑟_𝑠𝑐𝑟𝑒𝑒𝑛)
-                    if (box[3] - VLA_l_y) > 0:
-                        h,w = self.im.shape[0],self.im.shape[1]
-                        x = int((box[0] + box[2])/2.0)
-                        x_range = abs(x - int(w/2.0))
-                        y_range = float((box[3] - VLA_l_y) / h)
-                        x_range_ratio = float(x_range / w)
-                        # 0.5 : 25 = 1 : 50
-                        x_distance = int(x_range_ratio * float(4.0/y_range))
-                        distance = int( (1.35 * 750) / (box[3] - VLA_l_y) )
-                        print(f'distance:{distance},x_distance:{x_distance}')
-                        final_distance = int(math.sqrt( (distance**2) + (x_distance**2)))
-                        print(f' {la_type} final_distance : {final_distance}')
-                        new_la = lab_type_mapping[lab]
-                        label = new_la + ',' + str(final_distance)
-                else:
-                    print("VLA_l_y = 9999 or la is VLA")
-                    label = ''
-            if label and DRAW_TXT:
-                tf = max(self.lw - 1, 1)  # font thickness
-                w, h = cv2.getTextSize(label, 0, fontScale=self.lw / 9, thickness=tf)[0]  # text width, height
-                outside = p1[1] - h >= 3
-                p2 = p1[0] + w, p1[1] - h - 3 if outside else p1[1] + h + 3
-                if la_type=='vehicle':
-                    cv2.rectangle(self.im, p1, p2, (255,127,0), -1, cv2.LINE_AA)  # filled
-                else:
-                    cv2.rectangle(self.im, p1, p2, color, -1, cv2.LINE_AA)  # filled
-                cv2.putText(self.im,
-                            label, (p1[0], p1[1] - 2 if outside else p1[1] + h + 2),
-                            0,
-                            self.lw / 9, #/3
-                            txt_color,
-                            thickness=2,# tf
-                            lineType=cv2.LINE_AA)             
-            if SHOW_FCW:
-                im = self.im
-                h,w = im.shape[0],im.shape[1]
-                
-                if SHOW_FC_RANGE:
-                    c_x = int(w/2.0 - w/10.0)
-                    c_y1 = int(h*0.50)
-                    c_y2 = int(h*0.99)
-                    c1 = (c_x,c_y1)
-                    c2 = (c_x,c_y2)
-                    cv2.line(im, c1, c2, (255,255,0), 2)
-
-                    c_x = int(w/2.0 + w/10.0)
-                    c_y1 = int(h*0.50)
-                    c_y2 = int(h*0.99)
-                    c1 = (c_x,c_y1)
-                    c2 = (c_x,c_y2)
-                    cv2.line(im, c1, c2, (255,255,0), 2)
-            
-                if final_distance != 9999 and final_distance < 15.0 and (la_type=='vehicle' or la=='perdestrain' or la=='rider'):
-                    if abs(int((int(box[0])+int(box[2]))/2.0) - int(w/2.0)) < int(w/10.0): 
-                        text = 'COLLISION WARNING !'
-                        cv2.putText(self.im, text, (int(w/6.0), int(h/3.0)), cv2.FONT_HERSHEY_PLAIN,6, (255, 127, 0), 8, cv2.LINE_AA)
     #=====================================================================================================================
     def box_FCWS_label(self, box, ADAS_Key_Points, VLA_l_y, label='', color=(128, 128, 128), txt_color=(255, 255, 255)):
         """Add one xyxy box to image with label."""
@@ -378,19 +306,22 @@ class Annotator:
             SHOW_FC_RANGE = True
             distance = 9999
             final_distance = 9999
-            CAMERA_HEIGHT = 1.50
-            FC_DISTANCE_TH = 15
+            CAMERA_HEIGHT = 1.35
+            FC_DISTANCE_TH = 20
+            f = 300
             lab_type_mapping = {'small vehicle':'V',
                             'big vehicle':'V',
                             'perdestrian':'P',
                             'rider':'R',
-                            'lane marking':'SS',
+                            'road sign':'SS',
                             'traffic light':'TL',
                             'traffic sign': 'TS',
                             'stop sign': 'LM' #show label is something wrong
                             }
             if SHOW_DISTANCE:
                 if VLA_l_y is not None and (la!='VLA' and la!='DCA' and la!='VPA' and la!='DUA'): #this case need vansih line y
+                    # modify vanish line Y
+                    VLA_l_y = VLA_l_y - 0
                     # 𝐻/𝐷=  ℎ/𝑓, 𝑠𝑜 𝐷=𝐻∗𝑓/ℎ
                     # 𝐻=1.5,𝑓=750,ℎ=〖𝑣𝑒ℎ𝑖𝑐𝑙𝑒_𝑑𝑖𝑠𝑡𝑎𝑛𝑐𝑒〗_(𝑠𝑒𝑛𝑠𝑜𝑟_𝑠𝑐𝑟𝑒𝑒𝑛)−〖𝑣𝑎𝑛𝑖𝑠ℎ_𝑑𝑖𝑠𝑡𝑎𝑛𝑐𝑒〗_(𝑠𝑒𝑛𝑠𝑜𝑟_𝑠𝑐𝑟𝑒𝑒𝑛)
                     if (box[3] - VLA_l_y) > 0:
@@ -401,7 +332,7 @@ class Annotator:
                         x_range_ratio = float(x_range / w)
                         # 0.5 : 25 = 1 : 50
                         x_distance = int(x_range_ratio * float(2.0/y_range))
-                        distance = int( (CAMERA_HEIGHT * 750) / (box[3] - VLA_l_y) )
+                        distance = int( (CAMERA_HEIGHT * f) / (box[3] - VLA_l_y) )
                         print(f'distance:{distance},x_distance:{x_distance}')
                         final_distance = int(math.sqrt( (distance**2) + (x_distance**2)))
                         print(f' {la_type} final_distance : {final_distance}')
@@ -415,6 +346,11 @@ class Annotator:
                 im = self.im
                 h,w = im.shape[0],im.shape[1]
                 HAVE_FC = False
+                line_height = 125
+                line_thickness = 1
+                shift_range_mid = 5
+                shift_range_up = 5
+                shift_range_down = 100
                 if SHOW_FC_RANGE:
                     DCA_p_l,DCA_p_r = ADAS_Key_Points[0][0],ADAS_Key_Points[0][1]
                     DUA_down_p_l,DUA_down_p_r = ADAS_Key_Points[1][0],ADAS_Key_Points[1][1]
@@ -422,47 +358,57 @@ class Annotator:
                     DUA_up_p_l,DUA_up_p_r = ADAS_Key_Points[3][0],ADAS_Key_Points[3][1]
                     DUA_upest_p_l,DUA_upest_p_r = ADAS_Key_Points[4][0],ADAS_Key_Points[4][1]
                     fc_color = (0,255,127)
-                    shift_range = 25
+                    #shift_range = 10
                  
                     if DUA_up_p_l is None:
                         if DUA_mid_p_l is not None:
                             # DUA mid
-                            c_x = int(DUA_mid_p_l[0] + shift_range)
+                            road_width = abs(DUA_mid_p_l[0] - DUA_mid_p_r[0])
+                            shift_range_mid = int(road_width / 8.0)
+                            c_x = int(DUA_mid_p_l[0] + shift_range_mid)
                             c_y1 = int(DUA_mid_p_l[1])
-                            c_y2 = int(DUA_mid_p_l[1]+50)
+                            c_y2 = int(DUA_mid_p_l[1]-line_height)
                             c1 = (c_x,c_y1)
                             c2 = (c_x,c_y2)
-                            cv2.line(im, c1, c2, fc_color, 2)
+                            cv2.line(im, c1, c2, fc_color, line_thickness)
                         if DUA_mid_p_r is not None:
                             # DUA mid
-                            c_x = int(DUA_mid_p_r[0] - shift_range)
+                            road_width = abs(DUA_mid_p_l[0] - DUA_mid_p_r[0])
+                            shift_range_mid = int(road_width / 8.0)
+                            c_x = int(DUA_mid_p_r[0] - shift_range_mid)
                             c_y1 = int(DUA_mid_p_r[1])
-                            c_y2 = int(DUA_mid_p_r[1]+50)
+                            c_y2 = int(DUA_mid_p_r[1]-line_height)
                             c1 = (c_x,c_y1)
                             c2 = (c_x,c_y2)
-                            cv2.line(im, c1, c2, fc_color, 2)
+                            cv2.line(im, c1, c2, fc_color, line_thickness)
                     else:
                         if DUA_up_p_l is not None:
                             # DUA mid
-                            c_x = int(DUA_up_p_l[0] + shift_range)
+                            road_width = abs(DUA_up_p_l[0] - DUA_up_p_r[0])
+                            shift_range_up = int(road_width / 8.0)
+                            c_x = int(DUA_up_p_l[0] + shift_range_up)
                             c_y1 = int(DUA_up_p_l[1])
-                            c_y2 = int(DUA_up_p_l[1]-350)
+                            c_y2 = int(DUA_up_p_l[1]-line_height)
                             c1 = (c_x,c_y1)
                             c2 = (c_x,c_y2)
-                            cv2.line(im, c1, c2, fc_color, 2)
+                            cv2.line(im, c1, c2, fc_color, line_thickness)
                         if DUA_up_p_r is not None:
                             # DUA mid
-                            c_x = int(DUA_up_p_r[0] - shift_range)
+                            road_width = abs(DUA_up_p_l[0] - DUA_up_p_r[0])
+                            shift_range_up = int(road_width / 8.0)
+                            c_x = int(DUA_up_p_r[0] - shift_range_up)
                             c_y1 = int(DUA_up_p_r[1])
-                            c_y2 = int(DUA_up_p_r[1]-350)
+                            c_y2 = int(DUA_up_p_r[1]-line_height)
                             c1 = (c_x,c_y1)
                             c2 = (c_x,c_y2)
-                            cv2.line(im, c1, c2, fc_color, 2)
+                            cv2.line(im, c1, c2, fc_color, line_thickness)
                 global HISTORY_DISTANCE
+                #sub_range = 0
+                FCW_text_size = 2
                 if HISTORY_DISTANCE - final_distance  >= 1.0 and final_distance != 9999 and final_distance < FC_DISTANCE_TH and (la_type=='vehicle' or la=='perdestrain' or la=='rider'):
                     if DUA_up_p_r is not None and DUA_up_p_l is not None:
-                        left_x = int(DUA_up_p_l[0] + 25)
-                        right_x = int(DUA_up_p_r[0] - 25)
+                        left_x = int(DUA_up_p_l[0] + shift_range_up)
+                        right_x = int(DUA_up_p_r[0] - shift_range_up)
                         road_width = abs(right_x-left_x)
                         mid_x = int((left_x + right_x)/2.0)
                         box_center_x = int((int(box[0])+int(box[2]))/2.0)
@@ -471,12 +417,12 @@ class Annotator:
                             text = 'COLLISION WARNING !'
                             print(f"final_distance : {final_distance},HISTORY_DISTANCE: {HISTORY_DISTANCE} ")
                             print("===============collision warning ============================")
-                            cv2.putText(self.im, text, (int(w/6.0), int(h/3.0)), cv2.FONT_HERSHEY_PLAIN,6, (255, 127, 0), 8, cv2.LINE_AA)
+                            cv2.putText(self.im, text, (int(w/6.0), int(h/3.0)), cv2.FONT_HERSHEY_PLAIN,FCW_text_size, (255, 127, 0), 4, cv2.LINE_AA)
                             ## update HISTORY_DISTANCE
                             HISTORY_DISTANCE = final_distance      
                     elif  DUA_mid_p_r is not None and DUA_mid_p_l is not None:
-                        left_x = int(DUA_mid_p_l[0] + 25)
-                        right_x = int(DUA_mid_p_r[0] - 25)
+                        left_x = int(DUA_mid_p_l[0] + shift_range_mid)
+                        right_x = int(DUA_mid_p_r[0] - shift_range_mid)
                         road_width = abs(right_x-left_x)
                         mid_x = int((left_x + right_x)/2.0)
                         box_center_x = int((int(box[0])+int(box[2]))/2.0)
@@ -487,10 +433,10 @@ class Annotator:
                             text = 'COLLISION WARNING !'
                             print(f"final_distance : {final_distance},HISTORY_DISTANCE: {HISTORY_DISTANCE} ")
                             print("===============collision warning ============================")
-                            cv2.putText(self.im, text, (int(w/6.0), int(h/3.0)), cv2.FONT_HERSHEY_PLAIN,6, (255, 127, 0), 8, cv2.LINE_AA)
+                            cv2.putText(self.im, text, (int(w/6.0), int(h/3.0)), cv2.FONT_HERSHEY_PLAIN,FCW_text_size, (255, 127, 0), 4, cv2.LINE_AA)
                     elif  DUA_down_p_r is not None and DUA_down_p_l is not None:
-                        left_x = int(DUA_down_p_l[0] + 25)
-                        right_x = int(DUA_down_p_r[0] - 25)
+                        left_x = int(DUA_down_p_l[0] + shift_range_down)
+                        right_x = int(DUA_down_p_r[0] - shift_range_down)
                         road_width = abs(right_x-left_x)
                         mid_x = int((left_x + right_x)/2.0)
                         box_center_x = int((int(box[0])+int(box[2]))/2.0)
@@ -501,21 +447,21 @@ class Annotator:
                             text = 'COLLISION WARNING !'
                             print(f"final_distance : {final_distance},HISTORY_DISTANCE: {HISTORY_DISTANCE} ")
                             print("===============collision warning ============================")
-                            cv2.putText(self.im, text, (int(w/6.0), int(h/3.0)), cv2.FONT_HERSHEY_PLAIN,6, (255, 127, 0), 8, cv2.LINE_AA)
+                            cv2.putText(self.im, text, (int(w/6.0), int(h/3.0)), cv2.FONT_HERSHEY_PLAIN,FCW_text_size, (255, 127, 0), 4, cv2.LINE_AA)
                     else:
                         box_center_x = int((int(box[0])+int(box[2]))/2.0)
-                        if abs(box_center_x- int(im.shape[1]/2.0) ) < 100:
+                        if abs(box_center_x- int(im.shape[1]/2.0) ) < self.im.shape[1]/8:
                             ## update HISTORY_DISTANCE
                             # HISTORY_DISTANCE = final_distance   
                             HAVE_FC = True
                             text = 'COLLISION WARNING !'
                             print(f"final_distance : {final_distance},HISTORY_DISTANCE: {HISTORY_DISTANCE} ")
                             print("===============collision warning ============================")
-                            cv2.putText(self.im, text, (int(w/6.0), int(h/3.0)), cv2.FONT_HERSHEY_PLAIN,6, (255, 127, 0), 8, cv2.LINE_AA)
+                            cv2.putText(self.im, text, (int(w/6.0), int(h/3.0)), cv2.FONT_HERSHEY_PLAIN,FCW_text_size, (255, 127, 0), 4, cv2.LINE_AA)
                 if final_distance != 9999 and (la_type=='vehicle' or la=='perdestrain' or la=='rider'):
                     if DUA_up_p_r is not None and DUA_up_p_l is not None:
-                        left_x = int(DUA_up_p_l[0] + 25)
-                        right_x = int(DUA_up_p_r[0] - 25)
+                        left_x = int(DUA_up_p_l[0] + shift_range_up)
+                        right_x = int(DUA_up_p_r[0] - shift_range_up)
                         mid_x = int((left_x + right_x)/2.0)
                         box_center_x = int((int(box[0])+int(box[2]))/2.0)
                         if box_center_x >= left_x and box_center_x<=right_x and abs(mid_x-box_center_x)<80: # key point : abs(mid_x-box_center_x)<80
@@ -541,14 +487,14 @@ class Annotator:
                 p1, p2 = (int(box[0]), int(box[1])), (int(box[2]), int(box[3]))
                 if la == 'perdestrain' or la_type=='vehicle' or la_type=='marking' or la_type=='light' or la_type=='sign':
                     if HAVE_FC:
-                        cv2.rectangle(self.im, p1, p2, (0,0,255), thickness=3, lineType=cv2.LINE_AA)
+                        cv2.rectangle(self.im, p1, p2, (0,0,255), thickness=2, lineType=cv2.LINE_AA)
                     else:
-                        cv2.rectangle(self.im, p1, p2, (255,127,0), thickness=2, lineType=cv2.LINE_AA)
+                        cv2.rectangle(self.im, p1, p2, (255,127,0), thickness=1, lineType=cv2.LINE_AA)
                 if la_type=='vehicle':
                     if HAVE_FC:
-                        cv2.rectangle(self.im, p1, p2, (0,0,255), thickness=3, lineType=cv2.LINE_AA)
+                        cv2.rectangle(self.im, p1, p2, (0,0,255), thickness=2, lineType=cv2.LINE_AA)
                     else:
-                        cv2.rectangle(self.im, p1, p2, (255,127,0), thickness=2, lineType=cv2.LINE_AA)
+                        cv2.rectangle(self.im, p1, p2, (255,127,0), thickness=1, lineType=cv2.LINE_AA)
 
             if label and DRAW_TXT:
                 FC_text = None
@@ -556,7 +502,7 @@ class Annotator:
                     FC_text = 'Collision Warning !!'
 
                 tf = max(self.lw - 1, 1)  # font thickness
-                w, h = cv2.getTextSize(label, 0, fontScale=self.lw / 9, thickness=tf)[0]  # text width, height
+                w, h = cv2.getTextSize(label, 0, fontScale=self.lw / 5, thickness=tf)[0]  # text width, height
                 outside = p1[1] - h >= 3
                 p2 = p1[0] + w, p1[1] - h - 3 if outside else p1[1] + h + 3
                 if la_type=='vehicle':
@@ -566,19 +512,18 @@ class Annotator:
                 cv2.putText(self.im,
                             label, (p1[0], p1[1] - 2 if outside else p1[1] + h + 2),
                             0,
-                            self.lw / 9, #/3
+                            self.lw / 5, #/3
                             txt_color,
-                            thickness=2,# tf
+                            thickness=1,# tf
                             lineType=cv2.LINE_AA)
                 if FC_text is not None:
                     cv2.putText(self.im,
-                                FC_text, (p1[0], p1[1] - 20 if outside else p1[1] + h - 12),
+                                FC_text, (p1[0], p1[1] - 20 if outside else p1[1] + h - 1),
                                 0,
-                                self.lw / 9, #/3
+                                self.lw / 5, #/3
                                 (0,0,255),
-                                thickness=2,# tf
+                                thickness=1,# tf
                                 lineType=cv2.LINE_AA)
-        
 
     def masks(self, masks, colors, im_gpu, alpha=0.5, retina_masks=False):
         """
@@ -603,15 +548,15 @@ class Annotator:
         masks = masks.unsqueeze(3)  # shape(n,h,w,1)
         masks_color = masks * (colors * alpha)  # shape(n,h,w,3)
 
-        inv_alph_masks = (1 - masks * alpha).cumprod(0)  # shape(n,h,w,1)
+        inv_alpha_masks = (1 - masks * alpha).cumprod(0)  # shape(n,h,w,1)
         mcs = masks_color.max(dim=0).values  # shape(n,h,w,3)
 
         im_gpu = im_gpu.flip(dims=[0])  # flip channel
         im_gpu = im_gpu.permute(1, 2, 0).contiguous()  # shape(h,w,3)
-        im_gpu = im_gpu * inv_alph_masks[-1] + mcs
+        im_gpu = im_gpu * inv_alpha_masks[-1] + mcs
         im_mask = (im_gpu * 255)
         im_mask_np = im_mask.byte().cpu().numpy()
-        self.im[:] = im_mask_np if retina_masks else scale_image(im_mask_np, self.im.shape)
+        self.im[:] = im_mask_np if retina_masks else ops.scale_image(im_mask_np, self.im.shape)
         if self.pil:
             # Convert im back to PIL and update draw
             self.fromarray(self.im)
@@ -689,15 +634,13 @@ class Annotator:
                 self.draw.text(xy, text, fill=txt_color, font=self.font)
         else:
             if box_style:
-                tf = max(self.lw - 1, 1)  # font thickness
-                w, h = cv2.getTextSize(text, 0, fontScale=self.lw / 3, thickness=tf)[0]  # text width, height
+                w, h = cv2.getTextSize(text, 0, fontScale=self.sf, thickness=self.tf)[0]  # text width, height
                 outside = xy[1] - h >= 3
                 p2 = xy[0] + w, xy[1] - h - 3 if outside else xy[1] + h + 3
                 cv2.rectangle(self.im, xy, p2, txt_color, -1, cv2.LINE_AA)  # filled
                 # Using `txt_color` for background and draw fg with white color
                 txt_color = (255, 255, 255)
-            tf = max(self.lw - 1, 1)  # font thickness
-            cv2.putText(self.im, text, xy, 0, self.lw / 3, txt_color, thickness=tf, lineType=cv2.LINE_AA)
+            cv2.putText(self.im, text, xy, 0, self.sf, txt_color, thickness=self.tf, lineType=cv2.LINE_AA)
 
     def fromarray(self, im):
         """Update self.im from a numpy array."""
@@ -716,8 +659,9 @@ def plot_labels(boxes, cls, names=(), save_dir=Path(''), on_plot=None):
     import pandas as pd
     import seaborn as sn
 
-    # Filter matplotlib>=3.7.2 warning
+    # Filter matplotlib>=3.7.2 warning and Seaborn use_inf and is_categorical FutureWarnings
     warnings.filterwarnings('ignore', category=UserWarning, message='The figure layout has changed to tight')
+    warnings.filterwarnings('ignore', category=FutureWarning)
 
     # Plot dataset labels
     LOGGER.info(f"Plotting labels to {save_dir / 'labels.jpg'}... ")
@@ -733,8 +677,8 @@ def plot_labels(boxes, cls, names=(), save_dir=Path(''), on_plot=None):
     # Matplotlib labels
     ax = plt.subplots(2, 2, figsize=(8, 8), tight_layout=True)[1].ravel()
     y = ax[0].hist(cls, bins=np.linspace(0, nc, nc + 1) - 0.5, rwidth=0.8)
-    with contextlib.suppress(Exception):  # color histogram bars by class
-        [y[2].patches[i].set_color([x / 255 for x in colors(i)]) for i in range(nc)]  # known issue #3195
+    for i in range(nc):
+        y[2].patches[i].set_color([x / 255 for x in colors(i)])
     ax[0].set_ylabel('instances')
     if 0 < len(names) < 30:
         ax[0].set_xticks(range(len(names)))
@@ -746,7 +690,7 @@ def plot_labels(boxes, cls, names=(), save_dir=Path(''), on_plot=None):
 
     # Rectangles
     boxes[:, 0:2] = 0.5  # center
-    boxes = xywh2xyxy(boxes) * 1000
+    boxes = ops.xywh2xyxy(boxes) * 1000
     img = Image.fromarray(np.ones((1000, 1000, 3), dtype=np.uint8) * 255)
     for cls, box in zip(cls[:500], boxes[:500]):
         ImageDraw.Draw(img).rectangle(box, width=1, outline=colors(cls))  # plot
@@ -765,7 +709,8 @@ def plot_labels(boxes, cls, names=(), save_dir=Path(''), on_plot=None):
 
 
 def save_one_box(xyxy, im, file=Path('im.jpg'), gain=1.02, pad=10, square=False, BGR=False, save=True):
-    """Save image crop as {file} with crop size multiple {gain} and {pad} pixels. Save and/or return crop.
+    """
+    Save image crop as {file} with crop size multiple {gain} and {pad} pixels. Save and/or return crop.
 
     This function takes a bounding box and an image, and then saves a cropped portion of the image according
     to the bounding box. Optionally, the crop can be squared, and the function allows for gain and padding
@@ -796,12 +741,12 @@ def save_one_box(xyxy, im, file=Path('im.jpg'), gain=1.02, pad=10, square=False,
 
     if not isinstance(xyxy, torch.Tensor):  # may be list
         xyxy = torch.stack(xyxy)
-    b = xyxy2xywh(xyxy.view(-1, 4))  # boxes
+    b = ops.xyxy2xywh(xyxy.view(-1, 4))  # boxes
     if square:
         b[:, 2:] = b[:, 2:].max(1)[0].unsqueeze(1)  # attempt rectangle to square
     b[:, 2:] = b[:, 2:] * gain + pad  # box wh * gain + pad
-    xyxy = xywh2xyxy(b).long()
-    clip_boxes(xyxy, im.shape)
+    xyxy = ops.xywh2xyxy(b).long()
+    ops.clip_boxes(xyxy, im.shape)
     crop = im[int(xyxy[0, 1]):int(xyxy[0, 3]), int(xyxy[0, 0]):int(xyxy[0, 2]), ::(1 if BGR else -1)]
     if save:
         file.parent.mkdir(parents=True, exist_ok=True)  # make directory
@@ -873,7 +818,7 @@ def plot_images(images,
             classes = cls[idx].astype('int')
 
             if len(bboxes):
-                boxes = xywh2xyxy(bboxes[idx, :4]).T
+                boxes = ops.xywh2xyxy(bboxes[idx, :4]).T
                 labels = bboxes.shape[1] == 4  # labels if no conf column
                 conf = None if labels else bboxes[idx, 4]  # check for confidence presence (label vs pred)
 
@@ -891,8 +836,7 @@ def plot_images(images,
                     c = names.get(c, c) if names else c
                     if labels or conf[j] > 0.25:  # 0.25 conf thresh
                         label = f'{c}' if labels else f'{c} {conf[j]:.1f}'
-                        DCA_pt,DUA_d_pt,DUA_m_pt,DUA_u_pt = annotator.box_label(box, label, color=color)
-                        print("Alister~~~~~")
+                        annotator.box_label(box, label, color=color)
             elif len(classes):
                 for c in classes:
                     color = colors(c)
@@ -1037,13 +981,23 @@ def plot_segmentation(images,
 @plt_settings()
 def plot_results(file='path/to/results.csv', dir='', segment=False, pose=False, classify=False, adas=False, ssegment=False, on_plot=None):
     """
-    Plot training results from results CSV file.
+    Plot training results from a results CSV file. The function supports various types of data including segmentation,
+    pose estimation, and classification. Plots are saved as 'results.png' in the directory where the CSV is located.
+
+    Args:
+        file (str, optional): Path to the CSV file containing the training results. Defaults to 'path/to/results.csv'.
+        dir (str, optional): Directory where the CSV file is located if 'file' is not provided. Defaults to ''.
+        segment (bool, optional): Flag to indicate if the data is for segmentation. Defaults to False.
+        pose (bool, optional): Flag to indicate if the data is for pose estimation. Defaults to False.
+        classify (bool, optional): Flag to indicate if the data is for classification. Defaults to False.
+        on_plot (callable, optional): Callback function to be executed after plotting. Takes filename as an argument.
+            Defaults to None.
 
     Example:
         ```python
         from ultralytics.utils.plotting import plot_results
 
-        plot_results('path/to/results.csv')
+        plot_results('path/to/results.csv', segment=True)
         ```
     """
     import pandas as pd
@@ -1090,13 +1044,99 @@ def plot_results(file='path/to/results.csv', dir='', segment=False, pose=False, 
         on_plot(fname)
 
 
+def plt_color_scatter(v, f, bins=20, cmap='viridis', alpha=0.8, edgecolors='none'):
+    """
+    Plots a scatter plot with points colored based on a 2D histogram.
+
+    Args:
+        v (array-like): Values for the x-axis.
+        f (array-like): Values for the y-axis.
+        bins (int, optional): Number of bins for the histogram. Defaults to 20.
+        cmap (str, optional): Colormap for the scatter plot. Defaults to 'viridis'.
+        alpha (float, optional): Alpha for the scatter plot. Defaults to 0.8.
+        edgecolors (str, optional): Edge colors for the scatter plot. Defaults to 'none'.
+
+    Examples:
+        >>> v = np.random.rand(100)
+        >>> f = np.random.rand(100)
+        >>> plt_color_scatter(v, f)
+    """
+
+    # Calculate 2D histogram and corresponding colors
+    hist, xedges, yedges = np.histogram2d(v, f, bins=bins)
+    colors = [
+        hist[min(np.digitize(v[i], xedges, right=True) - 1, hist.shape[0] - 1),
+             min(np.digitize(f[i], yedges, right=True) - 1, hist.shape[1] - 1)] for i in range(len(v))]
+
+    # Scatter plot
+    plt.scatter(v, f, c=colors, cmap=cmap, alpha=alpha, edgecolors=edgecolors)
+
+
+def plot_tune_results(csv_file='tune_results.csv'):
+    """
+    Plot the evolution results stored in an 'tune_results.csv' file. The function generates a scatter plot for each key
+    in the CSV, color-coded based on fitness scores. The best-performing configurations are highlighted on the plots.
+
+    Args:
+        csv_file (str, optional): Path to the CSV file containing the tuning results. Defaults to 'tune_results.csv'.
+
+    Examples:
+        >>> plot_tune_results('path/to/tune_results.csv')
+    """
+
+    import pandas as pd
+    from scipy.ndimage import gaussian_filter1d
+
+    # Scatter plots for each hyperparameter
+    csv_file = Path(csv_file)
+    data = pd.read_csv(csv_file)
+    num_metrics_columns = 1
+    keys = [x.strip() for x in data.columns][num_metrics_columns:]
+    x = data.values
+    fitness = x[:, 0]  # fitness
+    j = np.argmax(fitness)  # max fitness index
+    n = math.ceil(len(keys) ** 0.5)  # columns and rows in plot
+    plt.figure(figsize=(10, 10), tight_layout=True)
+    for i, k in enumerate(keys):
+        v = x[:, i + num_metrics_columns]
+        mu = v[j]  # best single result
+        plt.subplot(n, n, i + 1)
+        plt_color_scatter(v, fitness, cmap='viridis', alpha=.8, edgecolors='none')
+        plt.plot(mu, fitness.max(), 'k+', markersize=15)
+        plt.title(f'{k} = {mu:.3g}', fontdict={'size': 9})  # limit to 40 characters
+        plt.tick_params(axis='both', labelsize=8)  # Set axis label size to 8
+        if i % n != 0:
+            plt.yticks([])
+
+    file = csv_file.with_name('tune_scatter_plots.png')  # filename
+    plt.savefig(file, dpi=200)
+    plt.close()
+    LOGGER.info(f'Saved {file}')
+
+    # Fitness vs iteration
+    x = range(1, len(fitness) + 1)
+    plt.figure(figsize=(10, 6), tight_layout=True)
+    plt.plot(x, fitness, marker='o', linestyle='none', label='fitness')
+    plt.plot(x, gaussian_filter1d(fitness, sigma=3), ':', label='smoothed', linewidth=2)  # smoothing line
+    plt.title('Fitness vs Iteration')
+    plt.xlabel('Iteration')
+    plt.ylabel('Fitness')
+    plt.grid(True)
+    plt.legend()
+
+    file = csv_file.with_name('tune_fitness.png')  # filename
+    plt.savefig(file, dpi=200)
+    plt.close()
+    LOGGER.info(f'Saved {file}')
+
+
 def output_to_target(output, max_det=300):
     """Convert model output to target format [batch_id, class_id, x, y, w, h, conf] for plotting."""
     targets = []
     for i, o in enumerate(output):
         box, conf, cls = o[:max_det, :6].cpu().split((4, 1, 1), 1)
         j = torch.full((conf.shape[0], 1), i)
-        targets.append(torch.cat((j, cls, xyxy2xywh(box), conf), 1))
+        targets.append(torch.cat((j, cls, ops.xyxy2xywh(box), conf), 1))
     targets = torch.cat(targets, 0).numpy()
     return targets[:, 0], targets[:, 1], targets[:, 2:]
 
