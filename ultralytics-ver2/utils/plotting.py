@@ -191,6 +191,13 @@ class Annotator:
             la_type = label.split(" ")[1]
             DRAW_TXT = True
             # print(f"la = {la}, la_type={la_type}")
+            DRAW_VLA = True
+            DRAW_DCA = True
+            DRAW_VPA = True
+            DRAW_DUA_UP = True
+            DRAW_DUA_MID = True
+            DRAW_DUA_DOWN = True
+            ADAS_AREA_THICKNESS = 2
             if la=='small':
                 cv2.rectangle(self.im, p1, p2, color, thickness=1, lineType=cv2.LINE_AA) #self.lw
             if la=='big':
@@ -204,16 +211,19 @@ class Annotator:
                 VLA_l_y = int((box[3] + box[1])/2.0)
                 VLA_r_x = int(box[2])
                 VLA_r_y = int((box[3] + box[1])/2.0)
-                # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
+                if DRAW_VLA:
+                    cv2.rectangle(self.im, p1, p2, color, thickness=ADAS_AREA_THICKNESS, lineType=cv2.LINE_AA) #self.lw
             if la=='DCA':
                 DRAW_TXT= False
-                # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
+                if DRAW_DCA:
+                    cv2.rectangle(self.im, p1, p2, color, thickness=ADAS_AREA_THICKNESS, lineType=cv2.LINE_AA) #self.lw
                 DCA_l_x = int(box[0])
                 DCA_l_y = int(box[3])
                 DCA_r_x = int(box[2])
                 DCA_r_y = int(box[3])
             if la=='VPA':
-                # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
+                if DRAW_VPA:
+                    cv2.rectangle(self.im, p1, p2, color, thickness=ADAS_AREA_THICKNESS, lineType=cv2.LINE_AA) #self.lw
                 VPA_l_x = int(box[0])
                 VPA_l_y = int(box[3])
                 VPA_r_x = int(box[2])
@@ -225,6 +235,7 @@ class Annotator:
                 DUA_ut_l_y = int(box[3])
                 DUA_ut_r_x = int(box[2])
                 DUA_ut_r_y = int(box[3])
+                
                 # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
             if la == 'DUA' and la_type=='up':
                 DRAW_TXT= False
@@ -232,21 +243,24 @@ class Annotator:
                 DUA_u_l_y = int(box[3])
                 DUA_u_r_x = int(box[2])
                 DUA_u_r_y = int(box[3])
-                # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
+                if DRAW_DUA_UP:
+                    cv2.rectangle(self.im, p1, p2, color, thickness=ADAS_AREA_THICKNESS, lineType=cv2.LINE_AA) #self.lw
             if la == 'DUA' and la_type=='mid':
                 DRAW_TXT= False
                 DUA_m_l_x = int(box[0])
                 DUA_m_l_y = int(box[3])
                 DUA_m_r_x = int(box[2])
                 DUA_m_r_y = int(box[3])
-                # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
+                if DRAW_DUA_MID:
+                    cv2.rectangle(self.im, p1, p2, color, thickness=ADAS_AREA_THICKNESS, lineType=cv2.LINE_AA) #self.lw
             if la == 'DUA' and la_type=='down':
                 DRAW_TXT= False
                 DUA_d_l_x = int(box[0])
                 DUA_d_l_y = int(box[3])
                 DUA_d_r_x = int(box[2])
                 DUA_d_r_y = int(box[3])
-                # cv2.rectangle(self.im, p1, p2, color, thickness=2, lineType=cv2.LINE_AA) #self.lw
+                if DRAW_DUA_DOWN:
+                    cv2.rectangle(self.im, p1, p2, color, thickness=ADAS_AREA_THICKNESS, lineType=cv2.LINE_AA) #self.lw
             if label and DRAW_TXT:
                 tf = max(self.lw - 1, 1)  # font thickness
                 w, h = cv2.getTextSize(label, 0, fontScale=self.lw / 3, thickness=tf)[0]  # text width, height
